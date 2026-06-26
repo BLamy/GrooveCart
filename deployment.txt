@@ -1,0 +1,21 @@
+url https://groovecart-7avox9.netlify.app
+deployed_at 2026-06-26T20:20:25.388Z
+
+--- Deployment 2026-06-26 ---
+Initial production deployment of GrooveCart (vinyl record store).
+Changes:
+- Storefront catalog page (/) with search, genre filter, and sort, backed by GET /api/records.
+- Record detail backend GET /api/records/:id.
+- Checkout flow: POST /api/checkout (Stripe session + pending order) and OrderConfirmation page polling GET /api/orders/by-session/:sessionId (finalize-on-read, stock decrement).
+- Neon Postgres schema (records, orders, order_line_items) synced; 12-record seed present.
+- Netlify Recorder integration (audit triggers + backend-request recording endpoint).
+- Prices stored as integer cents server-side, mapped to dollars in the API layer.
+
+Verification (tests/deployment.spec.ts via playwright.deployment.config.ts, Replay-recorded):
+- Storefront loads 12 seeded records from the production Neon DB (data displays).
+- Add-to-cart write persists across a full page reload and renders on /cart (data updates).
+- No console errors; /api/records returned 200 (2 navigation-aborted fetches, benign).
+- Replay recording: 9782b519-3008-4c0b-8b08-45fa2ef56929
+  (https://app.replay.io/recording/9782b519-3008-4c0b-8b08-45fa2ef56929)
+- Note: checkout (POST /api/checkout) depends on the Stripe emulator and is exercised
+  only in the integration suite, not this live smoke test (it 504s in prod by design).

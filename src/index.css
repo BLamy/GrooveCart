@@ -1,0 +1,89 @@
+@import 'tailwindcss';
+
+/*
+ * GrooveCart design tokens.
+ * Warm near-white surfaces let colorful album art be the hero; a single
+ * burnt-amber accent drives primary actions (Add to Cart, Checkout).
+ */
+@theme {
+  --color-bg: #faf7f2;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f3efe8;
+  --color-text: #1c1917;
+  --color-text-muted: #6b6660;
+  --color-border: #e7e1d8;
+  --color-accent: #c2410c;
+  --color-accent-hover: #9a3412;
+  --color-accent-soft: #fbe8db;
+  --color-soldout: #9c958c;
+  --color-success: #15803d;
+  --color-success-soft: #e7f3ec;
+  --color-warning: #b45309;
+  --color-warning-soft: #fbeede;
+  --color-danger: #b91c1c;
+  --color-danger-soft: #f7e3e1;
+
+  --radius-card: 0.875rem;
+  --radius-control: 0.625rem;
+
+  --shadow-card: 0 1px 2px rgba(28, 25, 23, 0.04), 0 6px 20px rgba(28, 25, 23, 0.06);
+}
+
+:root {
+  --gc-bg: #faf7f2;
+  --gc-surface: #ffffff;
+  --gc-surface-muted: #f3efe8;
+  --gc-text: #1c1917;
+  --gc-text-muted: #6b6660;
+  --gc-border: #e7e1d8;
+  --gc-accent: #c2410c;
+  --gc-accent-hover: #9a3412;
+  --gc-accent-soft: #fbe8db;
+  --gc-soldout: #9c958c;
+  --gc-success: #15803d;
+  --gc-warning: #b45309;
+  --gc-danger: #b91c1c;
+  --gc-radius-card: 0.875rem;
+  --gc-radius-control: 0.625rem;
+  --gc-shadow-card: 0 1px 2px rgba(28, 25, 23, 0.04), 0 6px 20px rgba(28, 25, 23, 0.06);
+  --gc-max-width: 1200px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--gc-bg);
+  color: var(--gc-text);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+:focus-visible {
+  outline: 2px solid var(--gc-accent);
+  outline-offset: 2px;
+}
