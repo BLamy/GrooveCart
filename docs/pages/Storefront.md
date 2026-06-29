@@ -32,7 +32,7 @@ records remain visible but are clearly marked and not purchasable.
 
 ## Data
 
-Fetches the records catalog from `GET /api/records`, returning every record in
+Fetches the records catalog from `/data/records.json`, returning every record in
 the catalog. Each record has: `id`, `title`, `artist`, `genre`, `releaseYear`,
 `price`, `coverImage`, `description`, and `stock`.
 
@@ -44,7 +44,7 @@ and sort are applied client-side over the fetched catalog.
 ### Seed catalog (canonical reference for tests)
 
 The catalog is seeded with **12 records** spanning **5 genres** (used by all
-Storefront component test entries; `seed-db.ts` must match exactly):
+Storefront component test entries; `public/data/records.json` is canonical):
 
 | Title | Artist | Genre | Year | Price | Stock |
 |-------|--------|-------|------|-------|-------|

@@ -23,10 +23,10 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * The post-purchase page reached via the Stripe success redirect
- * (`/order/confirmation?session_id=...`). It looks up the recorded order keyed
- * by the Stripe session reference, retrying briefly so an order that is recorded
- * a moment after redirect still resolves. On success it empties the cart for the
- * session and renders the order summary; otherwise it shows a not-found state.
+ * (`/order/confirmation?session_id=...`). It looks up the Stripe Checkout
+ * session, retrying briefly until Stripe reports payment complete. On success it
+ * empties the cart for the session and renders the order summary; otherwise it
+ * shows a not-found state.
  */
 export default function OrderConfirmation() {
   const [searchParams] = useSearchParams()

@@ -8,8 +8,9 @@
 
 GrooveCart is an online record store. Customers can browse a catalog of vinyl
 records, view details for individual records, add records to a shopping cart, and
-purchase them using Stripe checkout. Records and orders are stored in a Neon
-(serverless Postgres) database. The app is an e-commerce storefront for a record
+purchase them using Stripe checkout. The catalog is served from a static JSON
+file, and order confirmation is reconstructed from Stripe Checkout session
+metadata plus that catalog. The app is an e-commerce storefront for a record
 shop, combining a browseable record catalog with a real checkout flow.
 
 ## Core Functionality
@@ -39,25 +40,22 @@ shop, combining a browseable record catalog with a real checkout flow.
 ### Checkout & Payments (Stripe)
 - Checkout is powered by Stripe. The customer is taken through a Stripe checkout
   flow to pay for the records in their cart.
-- On successful payment, an order is created and recorded in the database, and the
-  purchased records' stock is decremented.
+- On successful payment, the order confirmation is reconstructed from the Stripe
+  Checkout session and the static catalog.
 - Show an order confirmation page summarizing the purchased records and total paid.
 - Handle the cancelled / failed payment case by returning the customer to the cart
   with their items intact.
 
 ### Orders
-- Persist each completed order with: the line items (records and quantities), the
-  total amount, the Stripe payment/session reference, a status, and a timestamp.
+- Store the compact cart snapshot on the Stripe Checkout session, keyed by the
+  Stripe payment/session reference.
 - Provide an order confirmation / order summary view for a completed purchase.
 
-## Data Storage (Neon)
+## Data Storage
 
-All persistent data is stored in a Neon serverless Postgres database:
-- **Records** — the catalog of records for sale (title, artist, genre, year, price,
-  cover image, description, stock quantity).
-- **Orders** — completed purchases, including the Stripe session/payment reference,
-  total, and status.
-- **Order line items** — the records and quantities belonging to each order.
+The catalog is stored in `public/data/records.json` and served statically:
+- **Records** — the catalog of records for sale (title, artist, genre, year,
+  price, cover image, description, stock quantity).
 
 The catalog should be seeded with a representative set of records spanning multiple
 genres so the store is populated for browsing and testing.
@@ -65,9 +63,8 @@ genres so the store is populated for browsing and testing.
 ## Integrations
 
 - **Stripe** — used for all payment processing / checkout. Buying records goes
-  through Stripe.
-- **Neon** — serverless Postgres used as the application database for storing
-  records, orders, and order line items.
+  through Stripe. Stripe Checkout session metadata carries the order reference
+  and compact record/quantity snapshot used by the confirmation page.
 
 ## Testing Requirements
 
@@ -79,8 +76,8 @@ genres so the store is populated for browsing and testing.
 ## Requirements & Constraints
 
 - Buying records MUST go through Stripe (no ad-hoc/fake payment path in production).
-- Records and orders MUST be stored in Neon.
-- Stock must be tracked and decremented on a successful purchase; out-of-stock
-  records cannot be purchased.
+- The catalog MUST be served from static JSON.
+- Stock is static display/validation data; out-of-stock records cannot be
+  purchased.
 - The storefront should present a clean, streamlined interface focused on browsing
   records and completing a purchase.

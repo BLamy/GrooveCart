@@ -1,37 +1,18 @@
-import { getSql } from './db'
+import { findCatalogRecord, priceCents } from './catalog'
 import { getStripe } from './stripe'
-import { withRecording } from './recording'
 
 /**
  * GET /api/orders/by-session/:sessionId — the recorded order for a Stripe
  * Checkout session, with its line items.
  *
- * Fulfillment happens here, on first read after the Stripe success redirect
- * (GrooveCart is webhook-less): if the order is still `pending`, the function
- * retrieves the Stripe session and, when payment is confirmed, atomically flips
- * the order to `paid` and decrements the purchased records' stock. The status
- * transition is guarded so concurrent/repeated reads never double-decrement.
- *
- * The page polls this endpoint briefly after redirect, so an order that is a
- * moment behind still resolves rather than erroring.
+ * The checkout function stores a compact `recordId:quantity` cart snapshot in
+ * Stripe session metadata. This endpoint retrieves the session, verifies payment
+ * state, and reconstructs the confirmation response from Stripe + the static
+ * catalog, with no database dependency.
  */
-interface OrderRow {
-  id: number
-  order_reference: string
-  stripe_session_id: string
-  status: string
-  total_cents: number
-  created_at: string
-}
-
-interface LineItemRow {
-  record_id: number | null
-  title: string
-  artist: string
-  cover_image: string
-  unit_price_cents: number
+interface CartQuantity {
+  recordId: number
   quantity: number
-  line_total_cents: number
 }
 
 function parseSessionId(req: Request): string | null {
@@ -47,81 +28,51 @@ function parseSessionId(req: Request): string | null {
   return null
 }
 
-async function loadLineItems(
-  sql: ReturnType<typeof getSql>,
-  orderId: number,
-): Promise<LineItemRow[]> {
-  return (await sql`
-    SELECT record_id, title, artist, cover_image, unit_price_cents, quantity, line_total_cents
-    FROM order_line_items
-    WHERE order_id = ${orderId}
-    ORDER BY id ASC
-  `) as LineItemRow[]
+function parseCatalogItems(raw: string | null | undefined): CartQuantity[] | null {
+  if (!raw) return null
+  const items: CartQuantity[] = []
+  for (const token of raw.split(',')) {
+    const [recordRaw, quantityRaw] = token.split(':')
+    const recordId = Number(recordRaw)
+    const quantity = Number(quantityRaw)
+    if (!Number.isInteger(recordId) || recordId <= 0) return null
+    if (!Number.isInteger(quantity) || quantity <= 0) return null
+    items.push({ recordId, quantity })
+  }
+  return items.length ? items : null
 }
 
-function serialize(order: OrderRow, lineItems: LineItemRow[]) {
-  return {
-    orderReference: order.order_reference,
-    sessionId: order.stripe_session_id,
-    status: order.status,
-    totalCents: order.total_cents,
-    total: order.total_cents / 100,
-    createdAt: order.created_at,
-    lineItems: lineItems.map((li) => ({
-      recordId: li.record_id,
-      title: li.title,
-      artist: li.artist,
-      coverImage: li.cover_image,
-      unitPriceCents: li.unit_price_cents,
-      unitPrice: li.unit_price_cents / 100,
-      quantity: li.quantity,
-      lineTotalCents: li.line_total_cents,
-      lineTotal: li.line_total_cents / 100,
-    })),
-  }
-}
-
-/**
- * If the order is pending and Stripe reports the session as paid, flip it to
- * `paid` and decrement stock exactly once. Returns the (possibly updated) order.
- */
-async function fulfillIfPaid(
-  sql: ReturnType<typeof getSql>,
-  order: OrderRow,
-  lineItems: LineItemRow[],
-): Promise<OrderRow> {
-  if (order.status !== 'pending') return order
-
-  let paid = false
-  try {
-    const session = await getStripe().checkout.sessions.retrieve(order.stripe_session_id)
-    paid = session.payment_status === 'paid' || session.status === 'complete'
-  } catch (err) {
-    // Stripe unreachable: leave the order pending; the client retries.
-    console.error('Stripe session retrieve failed', err)
-    return order
-  }
-  if (!paid) return order
-
-  // Guarded transition: only the read that wins the pending->paid flip performs
-  // the stock decrement, so duplicate reads can't decrement twice.
-  const claimed = (await sql`
-    UPDATE orders SET status = 'paid' WHERE id = ${order.id} AND status = 'pending'
-    RETURNING id
-  `) as Array<{ id: number }>
-
-  if (claimed.length > 0) {
-    for (const li of lineItems) {
-      if (li.record_id !== null) {
-        await sql`
-          UPDATE records SET stock = GREATEST(stock - ${li.quantity}, 0)
-          WHERE id = ${li.record_id}
-        `
-      }
+function serialize(sessionId: string, orderReference: string, status: string, created: number, items: CartQuantity[]) {
+  const lineItems = items.map(({ recordId, quantity }) => {
+    const record = findCatalogRecord(recordId)
+    if (!record) {
+      throw new Error(`Record ${recordId} missing from static catalog`)
     }
-  }
+    const unitPriceCents = priceCents(record)
+    const lineTotalCents = unitPriceCents * quantity
+    return {
+      recordId,
+      title: record.title,
+      artist: record.artist,
+      coverImage: record.coverImage,
+      unitPriceCents,
+      unitPrice: unitPriceCents / 100,
+      quantity,
+      lineTotalCents,
+      lineTotal: lineTotalCents / 100,
+    }
+  })
+  const totalCents = lineItems.reduce((sum, line) => sum + line.lineTotalCents, 0)
 
-  return { ...order, status: 'paid' }
+  return {
+    orderReference,
+    sessionId,
+    status,
+    totalCents,
+    total: totalCents / 100,
+    createdAt: new Date(created * 1000).toISOString(),
+    lineItems,
+  }
 }
 
 async function handler(req: Request): Promise<Response> {
@@ -135,26 +86,23 @@ async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    const sql = getSql()
-    const orders = (await sql`
-      SELECT id, order_reference, stripe_session_id, status, total_cents, created_at
-      FROM orders
-      WHERE stripe_session_id = ${sessionId}
-    `) as OrderRow[]
-
-    let order = orders[0]
-    if (!order) {
+    const session = await getStripe().checkout.sessions.retrieve(sessionId)
+    const items = parseCatalogItems(session.metadata?.catalog_items)
+    const orderReference = session.metadata?.order_reference
+    if (!items || !orderReference) {
       return Response.json({ error: 'Order not found' }, { status: 404 })
     }
 
-    const lineItems = await loadLineItems(sql, order.id)
-    order = await fulfillIfPaid(sql, order, lineItems)
+    const status =
+      session.payment_status === 'paid' || session.status === 'complete' ? 'paid' : 'pending'
 
-    return Response.json(serialize(order, lineItems))
+    return Response.json(
+      serialize(session.id, orderReference, status, session.created, items),
+    )
   } catch (err) {
     console.error('GET /api/orders/by-session failed', err)
     return Response.json({ error: 'Failed to load order' }, { status: 500 })
   }
 }
 
-export default withRecording('netlify/functions/orders', handler)
+export default handler

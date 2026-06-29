@@ -1,4 +1,4 @@
-import { execFileSync, execSync } from 'node:child_process'
+import { execFileSync, execSync, spawn, type ChildProcess } from 'node:child_process'
 import {
   mkdirSync,
   writeFileSync,
@@ -8,20 +8,16 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { initSchema } from './schema'
-import { truncateAndSeed } from './seed-db'
 
 /**
  * Test harness for GrooveCart.
  *
- * Creates an ephemeral Neon branch, initializes the schema and seeds it, runs a
- * single Playwright spec file against the Replay browser (Playwright's webServer
- * starts `netlify dev` with DATABASE_URL pointed at the ephemeral branch), then
- * cleans up the branch and uploads Replay recordings for failures.
+ * Starts the Stripe emulator, runs a single Playwright spec file against the
+ * local e2e server, then uploads Replay recordings for failures when
+ * `RECORD_REPLAY_API_KEY` is available through `exec-secrets`. The catalog is
+ * static JSON, so no database setup is needed.
  *
- * Secrets are NOT in this process's env; every secret-using operation shells out
- * via `exec-secrets <SECRET…> -- <verb>` from the allowlist (see
- * skills/scripts/baseAllowList.md). Run via `npm run test tests/<file>.spec.ts`.
+ * Run via `npm run test tests/<file>.spec.ts`.
  */
 
 const args = process.argv.slice(2)
@@ -37,8 +33,10 @@ mkdirSync('logs', { recursive: true })
 let n = 1
 while (existsSync(`logs/test-run-${n}.log`)) n++
 const LOG = `logs/test-run-${n}.log`
-writeFileSync(LOG, `test run ${new Date().toISOString()} — ${testFile}\n`)
+writeFileSync(LOG, `test run ${new Date().toISOString()} - ${testFile}\n`)
 const log = (s: string) => appendFileSync(LOG, s.endsWith('\n') ? s : s + '\n')
+const STRIPE_EMULATOR_PORT = Number(process.env.STRIPE_EMULATOR_PORT ?? 4009)
+const STRIPE_API_BASE = `http://127.0.0.1:${STRIPE_EMULATOR_PORT}`
 
 function execSecrets(secrets: string[], verb: string, verbArgs: string[] = []): string {
   return execFileSync('exec-secrets', [...secrets, '--', verb, ...verbArgs], {
@@ -48,134 +46,110 @@ function execSecrets(secrets: string[], verb: string, verbArgs: string[] = []): 
   })
 }
 
-function sleep(ms: number): void {
-  execSync(`sleep ${Math.ceil(ms / 1000)}`)
+async function waitForUrl(url: string, timeoutMs = 30_000): Promise<void> {
+  const started = Date.now()
+  let lastErr: unknown
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const res = await fetch(url)
+      if (res.ok || res.status < 500) return
+    } catch (err) {
+      lastErr = err
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  throw new Error(`Timed out waiting for ${url}: ${String(lastErr)}`)
 }
 
-const REQUIRED_SECRETS = ['NEON_API_KEY', 'RECORD_REPLAY_API_KEY', 'NEON_PROJECT_ID', 'DATABASE_URL']
-
-/**
- * Verify every required secret is provisioned before doing any work. Secrets are
- * not in this process's env (they're injected per-verb via exec-secrets), so we
- * read the names from `list-secrets` rather than `process.env`.
- */
-function validateSecrets(): void {
-  let available: Set<string>
+async function startStripeEmulator(): Promise<ChildProcess | null> {
   try {
-    const out = execFileSync('list-secrets', [], { encoding: 'utf-8' })
-    available = new Set(
-      out
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => /^[A-Z0-9_]+$/.test(l)),
-    )
-  } catch (e) {
-    console.error(`could not list secrets: ${String(e)}`)
-    process.exit(1)
+    await waitForUrl(`${STRIPE_API_BASE}/meta`, 1_000)
+    log(`using existing Stripe emulator at ${STRIPE_API_BASE}`)
+    return null
+  } catch {
+    // Start our own emulator below.
   }
-  const missing = REQUIRED_SECRETS.filter((s) => !available.has(s))
-  if (missing.length) {
-    console.error(`missing required secrets: ${missing.join(', ')}`)
-    process.exit(1)
-  }
+
+  const child = spawn(
+    'npx',
+    ['emulate', 'start', '--service', 'stripe', '--port', String(STRIPE_EMULATOR_PORT)],
+    {
+      env: { ...process.env, LC_ALL: 'C' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
+
+  child.stdout?.on('data', (chunk) => log(`[emulate] ${String(chunk)}`))
+  child.stderr?.on('data', (chunk) => log(`[emulate] ${String(chunk)}`))
+
+  await waitForUrl(`${STRIPE_API_BASE}/meta`)
+  log(`started Stripe emulator at ${STRIPE_API_BASE}`)
+  return child
+}
+
+async function stopProcess(child: ChildProcess | null): Promise<void> {
+  if (!child || child.exitCode !== null) return
+  await new Promise<void>((resolve) => {
+    child.once('exit', () => resolve())
+    child.kill('SIGTERM')
+    setTimeout(() => {
+      if (child.exitCode === null) child.kill('SIGKILL')
+    }, 2_000).unref()
+  })
 }
 
 async function main(): Promise<number> {
-  // 1. Validate that all required secrets are provisioned.
-  validateSecrets()
-
-  // 2. Kill stale dev servers / browsers from previous runs.
   try {
     execSync('kill-stale', { stdio: 'ignore' })
   } catch {
     // best-effort
   }
 
-  // 3. Clean up leftover ephemeral test branches.
   try {
-    const listed = JSON.parse(execSecrets(['NEON_API_KEY', 'NEON_PROJECT_ID'], 'neon-list-branches'))
-    for (const b of listed.branches ?? []) {
-      if (typeof b.name === 'string' && b.name.startsWith('test-run-')) {
-        try {
-          execSecrets(['NEON_API_KEY', 'NEON_PROJECT_ID'], 'neon-delete-branch', [b.id])
-          log(`deleted stale branch ${b.name}`)
-        } catch (e) {
-          log(`could not delete stale branch ${b.name}: ${String(e)}`)
-        }
-      }
-    }
-  } catch (e) {
-    log(`branch cleanup skipped: ${String(e)}`)
+    execSync('npx replayio remove --all', { stdio: 'ignore' })
+  } catch {
+    // ignore
   }
 
-  // 4. Create a fresh ephemeral branch for this run.
-  const branchName = `test-run-${n}-${process.pid}`
-  const created = JSON.parse(
-    execSecrets(['NEON_API_KEY', 'NEON_PROJECT_ID'], 'neon-create-branch', [branchName]),
-  )
-  const branchId: string = created.branch.id
-  log(`created branch ${branchName} (${branchId})`)
-
-  // 5. Fetch the branch connection URI (kept in-process; never logged).
-  const connResp = JSON.parse(
-    execSecrets(['NEON_API_KEY', 'NEON_PROJECT_ID'], 'neon-branch-connection-uri', [branchId]),
-  )
-  const branchUrl: string = connResp.uri
-  if (!branchUrl) throw new Error('failed to obtain ephemeral branch connection URI')
-
-  // Neon endpoints need a few seconds to become reachable after branch creation.
-  sleep(10_000)
-
   let exitCode = 1
+  const emulator = await startStripeEmulator()
   try {
-    // 6. Initialize schema + seed the ephemeral branch.
-    await initSchema(branchUrl)
-    await truncateAndSeed(branchUrl)
-    log('schema initialized and seeded')
-
-    // 7. Clear stale local recordings.
-    try {
-      execSync('npx replayio remove --all', { stdio: 'ignore' })
-    } catch {
-      // ignore
-    }
-
-    // 8. Run Playwright. DATABASE_URL is read by playwright.config webServer.env
-    //    and by tests/test-helpers.ts. Tests and the dev server share the branch.
-    const env = { ...process.env, DATABASE_URL: branchUrl, LC_ALL: 'C' }
-    try {
-      const out = execSync(
-        `npx playwright test ${JSON.stringify(testFile)} --retries 0 --workers 1`,
-        { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], env, timeout: 300_000 },
-      )
-      log(out)
-      exitCode = 0
-    } catch (err: unknown) {
-      const e = err as { stdout?: string; stderr?: string; status?: number }
-      log((e.stdout ?? '') + (e.stderr ?? ''))
-      exitCode = e.status ?? 1
-    }
-
-    // 9. Upload Replay recordings (one for failures, or all when requested).
-    uploadRecordings(exitCode !== 0)
+    const out = execSync(
+      `npx playwright test ${JSON.stringify(testFile)} --retries 0 --workers 1`,
+      {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          LC_ALL: 'C',
+          STRIPE_API_BASE,
+          STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ?? 'sk_test_emulated',
+          PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL ?? 'http://localhost:8888',
+        },
+        timeout: 300_000,
+      },
+    )
+    log(out)
+    exitCode = 0
+  } catch (err: unknown) {
+    const e = err as { stdout?: string; stderr?: string; status?: number }
+    log((e.stdout ?? '') + (e.stderr ?? ''))
+    exitCode = e.status ?? 1
   } finally {
-    // 10. Cleanup: delete the ephemeral branch and clear local recordings.
-    try {
-      execSecrets(['NEON_API_KEY', 'NEON_PROJECT_ID'], 'neon-delete-branch', [branchId])
-      log(`deleted branch ${branchName}`)
-    } catch (e) {
-      log(`could not delete branch ${branchName}: ${String(e)}`)
-    }
-    try {
-      execSync('npx replayio remove --all', { stdio: 'ignore' })
-    } catch {
-      // ignore
-    }
-    try {
-      execSync('kill-stale', { stdio: 'ignore' })
-    } catch {
-      // ignore
-    }
+    await stopProcess(emulator)
+  }
+
+  uploadRecordings(exitCode !== 0)
+
+  try {
+    execSync('npx replayio remove --all', { stdio: 'ignore' })
+  } catch {
+    // ignore
+  }
+  try {
+    execSync('kill-stale', { stdio: 'ignore' })
+  } catch {
+    // ignore
   }
 
   printSummary(exitCode)
@@ -247,7 +221,7 @@ function uploadRecordings(hadFailures: boolean): void {
     const out = execSecrets(['RECORD_REPLAY_API_KEY'], 'replay-upload-all')
     log('\n=== REPLAY UPLOAD ===\n' + out)
   } catch (e) {
-    log(`replay upload failed: ${String(e)}`)
+    log(`replay upload skipped or failed: ${String(e)}`)
   }
 }
 
@@ -257,10 +231,10 @@ function printSummary(exitCode: number): void {
     const parts = [`${counts.passed} passed`]
     if (counts.failed) parts.push(`${counts.failed} failed`)
     if (counts.skipped) parts.push(`${counts.skipped} skipped`)
-    console.log(`${parts.join(', ')} — see ${LOG}`)
+    console.log(`${parts.join(', ')} - see ${LOG}`)
   } else {
     console.log(
-      `${exitCode === 0 ? 'tests passed' : 'tests failed'} (no parseable results) — see ${LOG}`,
+      `${exitCode === 0 ? 'tests passed' : 'tests failed'} (no parseable results) - see ${LOG}`,
     )
   }
 }
@@ -269,6 +243,6 @@ main()
   .then((code) => process.exit(code))
   .catch((err) => {
     log(`harness error: ${err?.stack ?? String(err)}`)
-    console.error(`test harness error — see ${LOG}`)
+    console.error(`test harness error - see ${LOG}`)
     process.exit(1)
   })

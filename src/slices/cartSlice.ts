@@ -4,7 +4,7 @@ import type { RootState } from '../store'
 /**
  * A single line in the cart. The cart only persists the record id and the
  * chosen quantity — authoritative record details (title, price, stock) are
- * always re-read from the catalog/records API so prices and stock bounds stay
+ * always re-read from the static catalog so prices and stock bounds stay
  * correct even if the catalog changes.
  */
 export interface CartItem {

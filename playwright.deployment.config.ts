@@ -7,7 +7,7 @@ import { devices as replayDevices } from '@replayio/playwright'
  * Runs the single `tests/deployment.spec.ts` against the LIVE production URL
  * (read from `deployment.txt`) using the Replay Chromium browser so the run can
  * be analyzed via the Replay MCP tools. Unlike `playwright.config.ts` this does
- * NOT start a dev server and does NOT touch Neon — it points at the deployed app.
+ * NOT start a dev server; it points at the deployed app.
  *
  * Recordings are written locally (`upload: false`); the deploy/test harness
  * uploads them afterwards with `exec-secrets RECORD_REPLAY_API_KEY -- replay-upload-all`,

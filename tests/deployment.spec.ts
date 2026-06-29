@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test'
  * `testIgnore` in playwright.config.ts.
  *
  * Verifies the two things a deployment must prove:
- *   1. Data displays  — the storefront loads real records from the production DB.
+ *   1. Data displays  — the storefront loads records from the static catalog.
  *   2. Data can be updated and persists — adding a record to the cart writes
  *      session state that survives a full page reload and renders on /cart.
  *
@@ -17,14 +17,14 @@ import { test, expect } from '@playwright/test'
  * smoke test exercises the cart write instead of a real purchase.
  */
 test('production storefront displays records and persists a cart write', async ({ page }) => {
-  // 1. DATA DISPLAYS — load the storefront and confirm DB-backed records render.
+  // 1. DATA DISPLAYS — load the storefront and confirm catalog records render.
   await page.goto('/')
 
   const addButtons = page.getByRole('button', { name: /Add .* to cart/i })
   await expect(addButtons.first()).toBeVisible({ timeout: 30_000 })
   expect(await addButtons.count()).toBeGreaterThan(0)
 
-  // A specific seeded record proves the live database, not a static fallback.
+  // A specific catalog record proves the live deployment is serving data.
   await expect(page.getByText('To Pimp a Butterfly').first()).toBeVisible()
 
   // 2. WRITE — add the first in-stock record to the cart.

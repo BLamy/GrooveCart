@@ -6,9 +6,11 @@ import RecordCover from '../components/RecordDetail/RecordCover'
 import PurchasePanel from '../components/RecordDetail/PurchasePanel'
 import RecordDetailSkeleton from '../components/RecordDetail/RecordDetailSkeleton'
 import RecordNotFound from '../components/RecordDetail/RecordNotFound'
+import { fetchRecord } from '../api/records'
 
 /**
- * RecordDetail page (`/records/:id`). Fetches a single record, renders a
+ * RecordDetail page (`/records/:id`). Loads a single record from static catalog
+ * data, renders a
  * two-column cover + purchase panel, and handles loading and not-found states.
  * Switching `:id` refetches with no stale data lingering from the prior record.
  */
@@ -24,16 +26,23 @@ export default function RecordDetail() {
     setNotFound(false)
     setRecord(null)
 
-    fetch(`/api/records/${id}`)
-      .then(async (res) => {
+    const recordId = Number(id)
+    if (!Number.isInteger(recordId) || recordId <= 0) {
+      setNotFound(true)
+      setLoading(false)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    fetchRecord(recordId)
+      .then((data) => {
         if (cancelled) return
-        if (res.status === 404) {
+        if (!data) {
           setNotFound(true)
           return
         }
-        if (!res.ok) throw new Error('Failed to load record')
-        const data = (await res.json()) as RecordItem
-        if (!cancelled) setRecord(data)
+        setRecord(data)
       })
       .catch(() => {
         if (!cancelled) setNotFound(true)

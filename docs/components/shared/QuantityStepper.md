@@ -49,9 +49,9 @@ the stepper is disabled entirely.
 - Bounds are derived from the record's `stock` and (on RecordDetail) the
   quantity of that record already present in the shared session cart.
 
-> Note: stock counts referenced below must be derived from the actual
-> `seed-db.ts` values. Tests should select records by a stable identifier and a
-> known stock level rather than by API return order.
+> Note: stock counts referenced below must be derived from
+> `public/data/records.json`. Tests should select records by a stable identifier
+> and a known stock level rather than by API return order.
 
 ## Tests
 

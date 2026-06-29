@@ -1,17 +1,17 @@
 import type { RecordItem } from '../types'
 
 /**
- * Fetch the full catalog from `GET /api/records`. The result is memoized for the
+ * Fetch the full catalog from the static JSON asset. The result is memoized for the
  * lifetime of the page so the Cart page and the (separately mounted) CartDrawer
  * can both hydrate their line items without issuing duplicate requests. Call
- * `invalidateRecords()` to force a refetch after stock may have changed.
+ * `invalidateRecords()` to force a refetch if the static asset is updated.
  */
 let cache: Promise<RecordItem[]> | null = null
 
 export function fetchRecords(): Promise<RecordItem[]> {
   if (!cache) {
     cache = (async () => {
-      const res = await fetch('/api/records')
+      const res = await fetch('/data/records.json')
       if (!res.ok) {
         throw new Error(`Failed to load records (${res.status})`)
       }
@@ -24,6 +24,11 @@ export function fetchRecords(): Promise<RecordItem[]> {
     })
   }
   return cache
+}
+
+export async function fetchRecord(id: number): Promise<RecordItem | null> {
+  const records = await fetchRecords()
+  return records.find((record) => record.id === id) ?? null
 }
 
 export function invalidateRecords(): void {

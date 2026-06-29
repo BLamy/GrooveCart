@@ -44,10 +44,10 @@ both reflects stock and drives whether the purchase controls (`QuantityStepper`,
   enabled state off the same stock value.
 
 > Note: the specific records and stock counts referenced below must be derived
-> from the actual `seed-db.ts` values once the catalog is seeded. The seed must
-> include at least one record at each stock level (in stock > 5, low stock
-> between 1 and 5, and sold out at 0). Tests should select records by a stable
-> identifier (title/artist), not by API return order.
+> from `public/data/records.json`. The catalog must include at least one record
+> at each stock level (in stock > 5, low stock between 1 and 5, and sold out at
+> 0). Tests should select records by a stable identifier (title/artist), not by
+> API return order.
 
 ## Tests
 

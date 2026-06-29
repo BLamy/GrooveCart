@@ -44,9 +44,9 @@ When disabled (out of stock, or cart already holds all available stock):
   quantity of this record already in the cart.
 - Opens and updates the `CartDrawer`; updates the `SiteHeader` cart count.
 
-> Note: stock counts referenced below must be derived from the actual
-> `seed-db.ts` values. Tests should select records by a stable identifier and a
-> known stock level rather than by API return order.
+> Note: stock counts referenced below must be derived from
+> `public/data/records.json`. Tests should select records by a stable identifier
+> and a known stock level rather than by return order.
 
 ## Tests
 

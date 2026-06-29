@@ -4,10 +4,10 @@ import { devices as replayDevices } from '@replayio/playwright'
 /**
  * Playwright config for GrooveCart.
  *
- * Tests run against `netlify dev` (Vite + Netlify Functions) on port 8888 using
- * the Replay Chromium browser so failures can be debugged via Replay recordings.
- * The `scripts/test.ts` harness owns Neon branch setup/seeding and invokes
- * Playwright with `--retries 0 --workers 1`.
+ * Tests run against a Vite-backed e2e server that mounts the same function
+ * handlers used by Netlify Functions. Checkout tests expect `scripts/test.ts`
+ * to start the Stripe emulator and pass `STRIPE_API_BASE`.
+ * The `scripts/test.ts` harness invokes Playwright with `--retries 0 --workers 1`.
  */
 const PORT = 8888
 const BASE_URL = `http://localhost:${PORT}`
@@ -42,12 +42,15 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `npx netlify dev --offline --port ${PORT} --targetPort 5173 --functions ./netlify/functions`,
+    command: `npx tsx scripts/e2e-server.ts`,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     env: {
-      DATABASE_URL: process.env.DATABASE_URL ?? '',
+      PORT: String(PORT),
+      PUBLIC_BASE_URL: BASE_URL,
+      STRIPE_API_BASE: process.env.STRIPE_API_BASE ?? 'http://127.0.0.1:4009',
+      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ?? 'sk_test_emulated',
     },
   },
 })

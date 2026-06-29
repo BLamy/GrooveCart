@@ -1,22 +1,20 @@
 import { randomUUID } from 'node:crypto'
-import { getSql } from './db'
+import { findCatalogRecord, priceCents, type CatalogRecord } from './catalog'
 import { getStripe } from './stripe'
-import { withRecording } from './recording'
 
 /**
  * POST /api/checkout — start a Stripe Checkout session for the current cart.
  *
  * The client posts the cart line items (record ids + quantities). The function:
- *  1. Loads the referenced records and validates availability against stock.
+ *  1. Loads the referenced records from the static catalog and validates stock.
  *  2. Creates a Stripe Product + Price for each line and a Stripe Checkout
  *     session (hosted, server-side) with the matching line items.
- *  3. Records a `pending` order keyed by the Stripe session id, snapshotting the
- *     title/artist/cover/unit price of every line so the confirmation renders
- *     correctly even if the catalog later changes.
+ *  3. Stores the compact cart snapshot in Stripe session metadata so the
+ *     confirmation page can render using Stripe + the static catalog only.
  *  4. Returns the session's hosted-checkout URL for the browser to redirect to.
  *
- * Stock is NOT decremented here — that happens only once payment is confirmed
- * (see `orders.ts`), so a cancelled checkout leaves the catalog untouched.
+ * Stock is static display data in this version. It gates checkout quantities but
+ * is not decremented globally after payment because there is no database.
  *
  * GrooveCart never collects card details: Stripe owns the payment step. On
  * success Stripe redirects to `/order/confirmation?session_id=...`; on cancel it
@@ -25,15 +23,6 @@ import { withRecording } from './recording'
 interface IncomingItem {
   recordId: number
   quantity: number
-}
-
-interface RecordRow {
-  id: number
-  title: string
-  artist: string
-  cover_image: string
-  price_cents: number
-  stock: number
 }
 
 function parseItems(body: unknown): IncomingItem[] | null {
@@ -60,6 +49,10 @@ function resolveOrigin(req: Request): string {
   return new URL(req.url).origin
 }
 
+function encodeCartMetadata(lines: Array<{ record: CatalogRecord; quantity: number }>): string {
+  return lines.map((line) => `${line.record.id}:${line.quantity}`).join(',')
+}
+
 async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return Response.json({ error: 'Method not allowed' }, { status: 405 })
@@ -82,22 +75,12 @@ async function handler(req: Request): Promise<Response> {
   for (const item of items) {
     quantities.set(item.recordId, (quantities.get(item.recordId) ?? 0) + item.quantity)
   }
-  const recordIds = [...quantities.keys()]
 
   try {
-    const sql = getSql()
-    const rows = (await sql`
-      SELECT id, title, artist, cover_image, price_cents, stock
-      FROM records
-      WHERE id = ANY(${recordIds}::int[])
-    `) as RecordRow[]
-
-    const byId = new Map(rows.map((r) => [r.id, r]))
-
-    // Validate every line against the authoritative catalog/stock.
-    const lines: Array<{ record: RecordRow; quantity: number; lineTotalCents: number }> = []
+    // Validate every line against the static catalog stock caps.
+    const lines: Array<{ record: CatalogRecord; quantity: number; lineTotalCents: number }> = []
     for (const [recordId, quantity] of quantities) {
-      const record = byId.get(recordId)
+      const record = findCatalogRecord(recordId)
       if (!record) {
         return Response.json({ error: `Record ${recordId} is no longer available` }, { status: 409 })
       }
@@ -110,7 +93,7 @@ async function handler(req: Request): Promise<Response> {
           { status: 409 },
         )
       }
-      lines.push({ record, quantity, lineTotalCents: record.price_cents * quantity })
+      lines.push({ record, quantity, lineTotalCents: priceCents(record) * quantity })
     }
 
     const totalCents = lines.reduce((sum, l) => sum + l.lineTotalCents, 0)
@@ -124,12 +107,14 @@ async function handler(req: Request): Promise<Response> {
     const stripeLineItems: Array<{ price: string; quantity: number }> = []
     for (const line of lines) {
       const product = await stripe.products.create({
-        name: `${line.record.title} — ${line.record.artist}`,
+        name: `${line.record.title} - ${line.record.artist}`,
+        images: [line.record.coverImage],
+        metadata: { record_id: String(line.record.id) },
       })
       const price = await stripe.prices.create({
         product: product.id,
         currency: 'usd',
-        unit_amount: line.record.price_cents,
+        unit_amount: priceCents(line.record),
       })
       stripeLineItems.push({ price: price.id, quantity: line.quantity })
     }
@@ -141,31 +126,12 @@ async function handler(req: Request): Promise<Response> {
       line_items: stripeLineItems,
       success_url: `${origin}/order/confirmation?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/cart`,
-      metadata: { order_reference: orderReference },
+      metadata: {
+        order_reference: orderReference,
+        catalog_items: encodeCartMetadata(lines),
+        total_cents: String(totalCents),
+      },
     })
-
-    // Record the pending order + snapshotted line items keyed by the session id.
-    const inserted = (await sql`
-      INSERT INTO orders (order_reference, stripe_session_id, status, total_cents)
-      VALUES (${orderReference}, ${session.id}, 'pending', ${totalCents})
-      RETURNING id
-    `) as Array<{ id: number }>
-    const orderRow = inserted[0]
-    if (!orderRow) {
-      throw new Error('Failed to record order')
-    }
-    const orderId = orderRow.id
-
-    for (const line of lines) {
-      await sql`
-        INSERT INTO order_line_items
-          (order_id, record_id, title, artist, cover_image, unit_price_cents, quantity, line_total_cents)
-        VALUES (
-          ${orderId}, ${line.record.id}, ${line.record.title}, ${line.record.artist},
-          ${line.record.cover_image}, ${line.record.price_cents}, ${line.quantity}, ${line.lineTotalCents}
-        )
-      `
-    }
 
     return Response.json({ url: session.url, sessionId: session.id, orderReference })
   } catch (err) {
@@ -174,4 +140,4 @@ async function handler(req: Request): Promise<Response> {
   }
 }
 
-export default withRecording('netlify/functions/checkout', handler)
+export default handler

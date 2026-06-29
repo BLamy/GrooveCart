@@ -8,15 +8,12 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "check": "tsx scripts/check.ts",
-    "seed-db": "tsx scripts/seed-db.ts",
     "test": "tsx scripts/test.ts",
     "deploy": "tsx scripts/deploy.ts"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^0.10.0",
     "@netlify/functions": "^3.0.0",
     "@reduxjs/toolkit": "^2.5.0",
-    "@replayio-app-building/netlify-recorder": "^0.65.0",
     "lucide-react": "^0.475.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

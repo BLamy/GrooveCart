@@ -1,5 +1,4 @@
-import { getSql } from './db'
-import { withRecording } from './recording'
+import { findCatalogRecord, getCatalogRecords } from './catalog'
 
 /**
  * Records API.
@@ -7,38 +6,10 @@ import { withRecording } from './recording'
  *   GET /api/records       — the full record catalog (newest first).
  *   GET /api/records/:id    — a single record by id (404 if absent).
  *
- * Maps the snake_case, integer-cents database rows to the camelCase, dollars
- * JSON shape the storefront consumes (`RecordItem`). The list is returned newest
- * first (release year descending) so the default Storefront ordering matches
- * without extra client work, though the client re-sorts as the shopper chooses.
+ * Kept as an API compatibility shim over the static JSON catalog. The
+ * storefront fetches `/data/records.json` directly, so catalog browsing has no
+ * function or database dependency.
  */
-
-interface RecordRow {
-  id: number
-  title: string
-  artist: string
-  genre: string
-  release_year: number
-  price_cents: number
-  cover_image: string
-  description: string
-  stock: number
-}
-
-function toRecordItem(r: RecordRow) {
-  return {
-    id: r.id,
-    title: r.title,
-    artist: r.artist,
-    genre: r.genre,
-    releaseYear: r.release_year,
-    price: r.price_cents / 100,
-    coverImage: r.cover_image,
-    description: r.description,
-    stock: r.stock,
-  }
-}
-
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -65,35 +36,17 @@ async function handler(req: Request): Promise<Response> {
     return json({ error: 'Method not allowed' }, 405)
   }
 
-  const sql = getSql()
   const id = parseRecordId(req)
 
-  try {
-    if (id !== null) {
-      const rows = (await sql`
-        SELECT id, title, artist, genre, release_year, price_cents, cover_image, description, stock
-        FROM records
-        WHERE id = ${id}
-      `) as RecordRow[]
-
-      const record = rows[0]
-      if (!record) {
-        return json({ error: 'Record not found' }, 404)
-      }
-      return json(toRecordItem(record))
+  if (id !== null) {
+    const record = findCatalogRecord(id)
+    if (!record) {
+      return json({ error: 'Record not found' }, 404)
     }
-
-    const rows = (await sql`
-      SELECT id, title, artist, genre, release_year, price_cents, cover_image, description, stock
-      FROM records
-      ORDER BY release_year DESC, id DESC
-    `) as RecordRow[]
-
-    return json(rows.map(toRecordItem))
-  } catch (err) {
-    console.error('GET /api/records failed', err)
-    return json({ error: 'Failed to load records' }, 500)
+    return json(record)
   }
+
+  return json(getCatalogRecords())
 }
 
-export default withRecording('netlify/functions/records', handler)
+export default handler

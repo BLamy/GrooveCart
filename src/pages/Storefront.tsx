@@ -8,9 +8,10 @@ import CatalogLoading from '../components/Storefront/CatalogLoading'
 import RecordGrid from '../components/Storefront/RecordGrid'
 import { ALL_GENRES } from '../components/Storefront/GenreFilter'
 import type { SortOption } from '../components/Storefront/SortDropdown'
+import { fetchRecords } from '../api/records'
 
 /**
- * The Storefront (home) page. Fetches the full catalog from `GET /api/records`,
+ * The Storefront (home) page. Fetches the full catalog from static JSON,
  * then applies the shopper's search (from the header `?q=` param), genre filter,
  * and sort entirely client-side. Renders the persistent SiteHeader, the
  * CatalogToolbar, the RecordGrid (or its empty state), and the SiteFooter.
@@ -27,12 +28,8 @@ export default function Storefront() {
   useEffect(() => {
     let active = true
     setError(null)
-    fetch('/api/records')
-      .then((res) => {
-        if (!res.ok) throw new Error(`Request failed: ${res.status}`)
-        return res.json()
-      })
-      .then((data: RecordItem[]) => {
+    fetchRecords()
+      .then((data) => {
         if (active) setRecords(data)
       })
       .catch(() => {

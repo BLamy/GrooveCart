@@ -1,11 +1,9 @@
 /**
- * A vinyl record as returned by the records API (`GET /api/records` and
- * `GET /api/records/:id`).
+ * A vinyl record as returned by the static catalog JSON.
  *
  * Named `RecordItem` (not `Record`) so it never shadows TypeScript's built-in
- * `Record<K, V>` utility type. `price` is in dollars (the API converts the
- * stored integer cents to a dollar amount); `stock` is the number of copies
- * available.
+ * `Record<K, V>` utility type. `price` is in dollars; `stock` is the number of
+ * copies displayed and used as the checkout quantity cap.
  */
 export interface RecordItem {
   id: number
@@ -27,9 +25,7 @@ export interface CartLine {
 
 /**
  * A single purchased line on a completed order, as returned by
- * `GET /api/orders/by-session/:sessionId`. Prices are in dollars; the
- * title/artist/cover are snapshotted on the order so it renders correctly even
- * if the catalog later changes.
+ * `GET /api/orders/by-session/:sessionId`. Prices are in dollars.
  */
 export interface OrderLineItem {
   recordId: number | null
@@ -42,7 +38,7 @@ export interface OrderLineItem {
 }
 
 /**
- * A recorded order keyed by its Stripe Checkout session reference. `status` is
+ * An order reconstructed from its Stripe Checkout session reference. `status` is
  * `'paid'` once payment has been confirmed and the order fulfilled.
  */
 export interface Order {
