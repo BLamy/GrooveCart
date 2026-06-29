@@ -6,6 +6,7 @@ import {
   readFileSync,
   existsSync,
 } from 'node:fs'
+import { createServer as createNetServer } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -37,6 +38,8 @@ writeFileSync(LOG, `test run ${new Date().toISOString()} - ${testFile}\n`)
 const log = (s: string) => appendFileSync(LOG, s.endsWith('\n') ? s : s + '\n')
 const STRIPE_EMULATOR_PORT = Number(process.env.STRIPE_EMULATOR_PORT ?? 4009)
 const STRIPE_API_BASE = `http://127.0.0.1:${STRIPE_EMULATOR_PORT}`
+const RESEND_EMULATOR_PORT = Number(process.env.RESEND_EMULATOR_PORT ?? 4008)
+const RESEND_API_BASE = `http://127.0.0.1:${RESEND_EMULATOR_PORT}`
 
 function execSecrets(secrets: string[], verb: string, verbArgs: string[] = []): string {
   return execFileSync('exec-secrets', [...secrets, '--', verb, ...verbArgs], {
@@ -61,10 +64,29 @@ async function waitForUrl(url: string, timeoutMs = 30_000): Promise<void> {
   throw new Error(`Timed out waiting for ${url}: ${String(lastErr)}`)
 }
 
-async function startStripeEmulator(): Promise<ChildProcess | null> {
+async function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createNetServer()
+    server.once('error', () => resolve(false))
+    server.once('listening', () => {
+      server.close(() => resolve(true))
+    })
+    server.listen(port, '127.0.0.1')
+  })
+}
+
+async function findE2ePort(): Promise<number> {
+  if (process.env.E2E_PORT) return Number(process.env.E2E_PORT)
+  for (let port = 18_888; port < 18_988; port++) {
+    if (await isPortAvailable(port)) return port
+  }
+  throw new Error('Could not find an available e2e server port')
+}
+
+async function startEmulator(service: 'stripe' | 'resend', port: number, readyUrl: string): Promise<ChildProcess | null> {
   try {
-    await waitForUrl(`${STRIPE_API_BASE}/meta`, 1_000)
-    log(`using existing Stripe emulator at ${STRIPE_API_BASE}`)
+    await waitForUrl(readyUrl, 1_000)
+    log(`using existing ${service} emulator at http://127.0.0.1:${port}`)
     return null
   } catch {
     // Start our own emulator below.
@@ -72,7 +94,7 @@ async function startStripeEmulator(): Promise<ChildProcess | null> {
 
   const child = spawn(
     'npx',
-    ['emulate', 'start', '--service', 'stripe', '--port', String(STRIPE_EMULATOR_PORT)],
+    ['emulate', 'start', '--service', service, '--port', String(port)],
     {
       env: { ...process.env, LC_ALL: 'C' },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -82,9 +104,17 @@ async function startStripeEmulator(): Promise<ChildProcess | null> {
   child.stdout?.on('data', (chunk) => log(`[emulate] ${String(chunk)}`))
   child.stderr?.on('data', (chunk) => log(`[emulate] ${String(chunk)}`))
 
-  await waitForUrl(`${STRIPE_API_BASE}/meta`)
-  log(`started Stripe emulator at ${STRIPE_API_BASE}`)
+  await waitForUrl(readyUrl)
+  log(`started ${service} emulator at http://127.0.0.1:${port}`)
   return child
+}
+
+async function startStripeEmulator(): Promise<ChildProcess | null> {
+  return startEmulator('stripe', STRIPE_EMULATOR_PORT, `${STRIPE_API_BASE}/meta`)
+}
+
+async function startResendEmulator(): Promise<ChildProcess | null> {
+  return startEmulator('resend', RESEND_EMULATOR_PORT, `${RESEND_API_BASE}/emails`)
 }
 
 async function stopProcess(child: ChildProcess | null): Promise<void> {
@@ -112,8 +142,13 @@ async function main(): Promise<number> {
   }
 
   let exitCode = 1
-  const emulator = await startStripeEmulator()
+  let stripeEmulator: ChildProcess | null = null
+  let resendEmulator: ChildProcess | null = null
   try {
+    stripeEmulator = await startStripeEmulator()
+    resendEmulator = await startResendEmulator()
+    const e2ePort = await findE2ePort()
+    const publicBaseUrl = process.env.PUBLIC_BASE_URL ?? `http://localhost:${e2ePort}`
     const out = execSync(
       `npx playwright test ${JSON.stringify(testFile)} --retries 0 --workers 1`,
       {
@@ -124,7 +159,13 @@ async function main(): Promise<number> {
           LC_ALL: 'C',
           STRIPE_API_BASE,
           STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ?? 'sk_test_emulated',
-          PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL ?? 'http://localhost:8888',
+          RESEND_API_BASE,
+          RESEND_EMULATOR_URL: RESEND_API_BASE,
+          RESEND_API_KEY: process.env.RESEND_API_KEY ?? 're_test_emulated',
+          EMAIL_FROM: process.env.EMAIL_FROM ?? 'GrooveCart <orders@groovecart.test>',
+          ORDER_CONFIRMATION_EMAIL_FALLBACK: process.env.ORDER_CONFIRMATION_EMAIL_FALLBACK ?? 'listener@example.com',
+          E2E_PORT: String(e2ePort),
+          PUBLIC_BASE_URL: publicBaseUrl,
         },
         timeout: 300_000,
       },
@@ -136,7 +177,8 @@ async function main(): Promise<number> {
     log((e.stdout ?? '') + (e.stderr ?? ''))
     exitCode = e.status ?? 1
   } finally {
-    await stopProcess(emulator)
+    await stopProcess(stripeEmulator)
+    await stopProcess(resendEmulator)
   }
 
   uploadRecordings(exitCode !== 0)

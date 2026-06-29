@@ -6,10 +6,10 @@ import { devices as replayDevices } from '@replayio/playwright'
  *
  * Tests run against a Vite-backed e2e server that mounts the same function
  * handlers used by Netlify Functions. Checkout tests expect `scripts/test.ts`
- * to start the Stripe emulator and pass `STRIPE_API_BASE`.
+ * to start the Stripe/Resend emulators and pass their local API bases.
  * The `scripts/test.ts` harness invokes Playwright with `--retries 0 --workers 1`.
  */
-const PORT = 8888
+const PORT = Number(process.env.E2E_PORT ?? 8888)
 const BASE_URL = `http://localhost:${PORT}`
 
 export default defineConfig({
@@ -44,13 +44,18 @@ export default defineConfig({
   webServer: {
     command: `npx tsx scripts/e2e-server.ts`,
     url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: process.env.E2E_REUSE_EXISTING_SERVER === '1',
     timeout: 120_000,
     env: {
       PORT: String(PORT),
       PUBLIC_BASE_URL: BASE_URL,
       STRIPE_API_BASE: process.env.STRIPE_API_BASE ?? 'http://127.0.0.1:4009',
       STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ?? 'sk_test_emulated',
+      RESEND_API_BASE: process.env.RESEND_API_BASE ?? 'http://127.0.0.1:4008',
+      RESEND_EMULATOR_URL: process.env.RESEND_EMULATOR_URL ?? process.env.RESEND_API_BASE ?? 'http://127.0.0.1:4008',
+      RESEND_API_KEY: process.env.RESEND_API_KEY ?? 're_test_emulated',
+      EMAIL_FROM: process.env.EMAIL_FROM ?? 'GrooveCart <orders@groovecart.test>',
+      ORDER_CONFIRMATION_EMAIL_FALLBACK: process.env.ORDER_CONFIRMATION_EMAIL_FALLBACK ?? 'listener@example.com',
     },
   },
 })
