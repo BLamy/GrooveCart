@@ -1,5 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createServer as createViteServer } from 'vite'
+import authCallbackHandler from '../netlify/functions/auth-callback'
+import authLoginHandler from '../netlify/functions/auth-login'
 import checkoutHandler from '../netlify/functions/checkout'
 import ordersHandler from '../netlify/functions/orders'
 import recordsHandler from '../netlify/functions/records'
@@ -53,6 +55,8 @@ async function sendWebResponse(res: ServerResponse, response: Response): Promise
 }
 
 function handlerForPath(pathname: string): FunctionHandler | null {
+  if (pathname.startsWith('/api/auth/login')) return authLoginHandler
+  if (pathname.startsWith('/api/auth/callback')) return authCallbackHandler
   if (pathname.startsWith('/api/checkout')) return checkoutHandler
   if (pathname.startsWith('/api/orders')) return ordersHandler
   if (pathname.startsWith('/api/records')) return recordsHandler

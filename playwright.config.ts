@@ -11,6 +11,7 @@ import { devices as replayDevices } from '@replayio/playwright'
  */
 const PORT = Number(process.env.E2E_PORT ?? 8888)
 const BASE_URL = `http://localhost:${PORT}`
+const OKTA_EMULATOR_URL = process.env.OKTA_EMULATOR_URL ?? 'http://127.0.0.1:4006'
 
 export default defineConfig({
   testDir: './tests',
@@ -55,6 +56,24 @@ export default defineConfig({
       RESEND_EMULATOR_URL: process.env.RESEND_EMULATOR_URL ?? process.env.RESEND_API_BASE ?? 'http://127.0.0.1:4008',
       RESEND_API_KEY: process.env.RESEND_API_KEY ?? 're_test_emulated',
       EMAIL_FROM: process.env.EMAIL_FROM ?? 'GrooveCart <orders@groovecart.test>',
+      GOOGLE_EMULATOR_URL: process.env.GOOGLE_EMULATOR_URL ?? 'http://127.0.0.1:4002',
+      GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ?? 'groovecart-google-client.apps.googleusercontent.com',
+      GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ?? 'groovecart-google-secret',
+      APPLE_EMULATOR_URL: process.env.APPLE_EMULATOR_URL ?? 'http://127.0.0.1:4004',
+      APPLE_CLIENT_ID: process.env.APPLE_CLIENT_ID ?? 'com.groovecart.web',
+      MICROSOFT_EMULATOR_URL: process.env.MICROSOFT_EMULATOR_URL ?? 'http://127.0.0.1:4005',
+      MICROSOFT_CLIENT_ID: process.env.MICROSOFT_CLIENT_ID ?? 'groovecart-microsoft-client',
+      MICROSOFT_CLIENT_SECRET: process.env.MICROSOFT_CLIENT_SECRET ?? 'groovecart-microsoft-secret',
+      OKTA_EMULATOR_URL,
+      OKTA_ISSUER: process.env.OKTA_ISSUER ?? `${OKTA_EMULATOR_URL}/oauth2/default`,
+      OKTA_CLIENT_ID: process.env.OKTA_CLIENT_ID ?? 'groovecart-okta-client',
+      OKTA_CLIENT_SECRET: process.env.OKTA_CLIENT_SECRET ?? 'groovecart-okta-secret',
+      AUTH0_ISSUER_BASE_URL: process.env.AUTH0_ISSUER_BASE_URL ?? `${OKTA_EMULATOR_URL}/oauth2/default`,
+      AUTH0_CLIENT_ID: process.env.AUTH0_CLIENT_ID ?? 'groovecart-okta-client',
+      AUTH0_CLIENT_SECRET: process.env.AUTH0_CLIENT_SECRET ?? 'groovecart-okta-secret',
+      CLERK_EMULATOR_URL: process.env.CLERK_EMULATOR_URL ?? 'http://127.0.0.1:4011',
+      CLERK_CLIENT_ID: process.env.CLERK_CLIENT_ID ?? 'groovecart-clerk-client',
+      CLERK_CLIENT_SECRET: process.env.CLERK_CLIENT_SECRET ?? 'groovecart-clerk-secret',
     },
   },
 })
