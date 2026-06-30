@@ -40,13 +40,17 @@ test('checkout completes through the emulated Stripe hosted page', async ({ page
   await page.goto('/cart')
   await expect(page.getByTestId('cart-line-item')).toContainText('To Pimp a Butterfly')
   await expect(page.getByTestId('summary-total')).toHaveText('$32.99')
+  await page.getByTestId('checkout-email-input').fill('listener@example.com')
   await page.getByTestId('checkout-button').click()
 
   await expect(page).toHaveURL(/localhost:4009\/checkout\/cs_/)
   await expect(page.getByText('To Pimp a Butterfly - Kendrick Lamar')).toBeVisible()
   await expect(page.getByText('$32.99').first()).toBeVisible()
 
-  await page.getByPlaceholder('you@example.com').fill('listener@example.com')
+  const hostedEmailInput = page.getByPlaceholder('you@example.com')
+  if (await hostedEmailInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await hostedEmailInput.fill('listener@example.com')
+  }
   await page.getByRole('button', { name: /Pay \$32\.99/i }).click()
 
   await expect(page).toHaveURL(/\/order\/confirmation\?session_id=cs_/)

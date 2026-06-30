@@ -18,16 +18,22 @@ interface CheckoutButtonProps {
  */
 export default function CheckoutButton({ items, label = 'Checkout' }: CheckoutButtonProps) {
   const [pending, setPending] = useState(false)
+  const [customerEmail, setCustomerEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const empty = items.length === 0
 
   async function onCheckout() {
     if (pending || empty) return
+    const email = customerEmail.trim()
+    if (!email || !email.includes('@')) {
+      setError('Enter an email address for your receipt.')
+      return
+    }
     setPending(true)
     setError(null)
     try {
-      const url = await createCheckoutSession(items)
+      const url = await createCheckoutSession(items, email)
       // Hand off to Stripe's hosted checkout. Keep `pending` true: the page is
       // navigating away, so the button stays disabled until then.
       window.location.href = url
@@ -39,6 +45,22 @@ export default function CheckoutButton({ items, label = 'Checkout' }: CheckoutBu
 
   return (
     <div className="flex flex-col gap-2">
+      <label className="flex flex-col gap-1 text-sm font-semibold text-[var(--gc-text)]">
+        Receipt email
+        <input
+          type="email"
+          data-testid="checkout-email-input"
+          autoComplete="email"
+          inputMode="email"
+          placeholder="listener@example.com"
+          value={customerEmail}
+          onChange={(event) => {
+            setCustomerEmail(event.target.value)
+            if (error) setError(null)
+          }}
+          className="rounded-[var(--gc-radius-control)] border border-[var(--gc-border)] bg-white px-3 py-2 font-normal text-[var(--gc-text)] outline-none transition-colors placeholder:text-[var(--gc-text-muted)] focus:border-[var(--gc-accent)]"
+        />
+      </label>
       <button
         type="button"
         data-testid="checkout-button"
