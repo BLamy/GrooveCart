@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search } from 'lucide-react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { LogIn, Search } from 'lucide-react'
 import Logo from './Logo'
 import CartButton from './CartButton'
 import CartDrawer from './Cart/CartDrawer'
@@ -45,7 +45,17 @@ export default function SiteHeader() {
           />
         </form>
         <div className="ml-auto sm:ml-0">
-          <CartButton />
+          <div className="flex items-center gap-2">
+            <Link
+              to="/login"
+              data-testid="header-login-link"
+              className="inline-flex h-10 items-center gap-2 rounded-[var(--gc-radius-control)] border border-[var(--gc-border)] bg-[var(--gc-surface)] px-3 text-sm font-bold text-[var(--gc-text)] transition-colors hover:border-[var(--gc-accent)] hover:text-[var(--gc-accent)]"
+            >
+              <LogIn size={17} aria-hidden="true" />
+              <span className="hidden md:inline">Sign in</span>
+            </Link>
+            <CartButton />
+          </div>
         </div>
       </div>
       <CartDrawer />

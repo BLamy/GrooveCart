@@ -11,6 +11,16 @@
   targetPort = 5173
 
 [[redirects]]
+  from = "/api/auth/login/:provider"
+  to = "/.netlify/functions/auth-login/:provider"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth/callback/:provider"
+  to = "/.netlify/functions/auth-callback/:provider"
+  status = 200
+
+[[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
