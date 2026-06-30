@@ -46,7 +46,9 @@ function parseCatalogItems(raw: string | null | undefined): CartQuantity[] | nul
 }
 
 function fallbackCustomerEmail(): string | null {
-  const value = process.env.ORDER_CONFIRMATION_EMAIL_FALLBACK?.trim()
+  const value =
+    process.env.ORDER_CONFIRMATION_EMAIL_FALLBACK?.trim() ||
+    process.env.LOOPQA_TEST_EMAIL?.trim()
   return value || null
 }
 
@@ -128,7 +130,11 @@ async function handler(req: Request): Promise<Response> {
 
     const status =
       session.payment_status === 'paid' || session.status === 'complete' ? 'paid' : 'pending'
-    const customerEmail = session.customer_details?.email ?? session.customer_email ?? fallbackCustomerEmail()
+    const customerEmail =
+      session.customer_details?.email ??
+      session.customer_email ??
+      session.metadata?.customer_email ??
+      fallbackCustomerEmail()
     const order = serialize(session.id, orderReference, status, session.created, items, customerEmail)
     await maybeSendConfirmationEmail(order)
 

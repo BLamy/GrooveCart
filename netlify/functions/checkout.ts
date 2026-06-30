@@ -42,6 +42,14 @@ function parseItems(body: unknown): IncomingItem[] | null {
   return parsed
 }
 
+function parseCustomerEmail(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null) return null
+  const raw = (body as { customerEmail?: unknown }).customerEmail
+  if (typeof raw !== 'string') return null
+  const email = raw.trim()
+  return email.includes('@') ? email : null
+}
+
 function resolveOrigin(req: Request): string {
   const fromHeader = req.headers.get('origin')
   if (fromHeader) return fromHeader.replace(/\/$/, '')
@@ -68,6 +76,10 @@ async function handler(req: Request): Promise<Response> {
   const items = parseItems(body)
   if (!items) {
     return Response.json({ error: 'Cart is empty or invalid' }, { status: 400 })
+  }
+  const customerEmail = parseCustomerEmail(body)
+  if (!customerEmail) {
+    return Response.json({ error: 'Email address is required for checkout' }, { status: 400 })
   }
 
   // Collapse duplicate record ids into a single quantity per record.
@@ -124,11 +136,13 @@ async function handler(req: Request): Promise<Response> {
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: stripeLineItems,
+      customer_email: customerEmail,
       success_url: `${origin}/order/confirmation?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/cart`,
       metadata: {
         order_reference: orderReference,
         catalog_items: encodeCartMetadata(lines),
+        customer_email: customerEmail,
         total_cents: String(totalCents),
       },
     })

@@ -55,7 +55,6 @@ export default defineConfig({
       RESEND_EMULATOR_URL: process.env.RESEND_EMULATOR_URL ?? process.env.RESEND_API_BASE ?? 'http://127.0.0.1:4008',
       RESEND_API_KEY: process.env.RESEND_API_KEY ?? 're_test_emulated',
       EMAIL_FROM: process.env.EMAIL_FROM ?? 'GrooveCart <orders@groovecart.test>',
-      ORDER_CONFIRMATION_EMAIL_FALLBACK: process.env.ORDER_CONFIRMATION_EMAIL_FALLBACK ?? 'listener@example.com',
     },
   },
 })

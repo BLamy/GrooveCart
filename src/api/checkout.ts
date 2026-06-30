@@ -10,11 +10,11 @@ export interface CheckoutLineInput {
  * caller redirects the browser to that URL. Throws with a readable message on
  * failure so the `CheckoutButton` can return to idle and surface an error.
  */
-export async function createCheckoutSession(items: CheckoutLineInput[]): Promise<string> {
+export async function createCheckoutSession(items: CheckoutLineInput[], customerEmail: string): Promise<string> {
   const res = await fetch('/api/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, customerEmail }),
   })
 
   if (!res.ok) {
