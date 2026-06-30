@@ -1,5 +1,34 @@
 import { test, expect } from '@playwright/test'
 
+const RESEND_API_BASE = process.env.RESEND_API_BASE ?? 'http://127.0.0.1:4008'
+
+interface CapturedEmail {
+  to: string[]
+  subject: string
+  text: string | null
+  html: string | null
+}
+
+async function findConfirmationEmail(orderReference: string): Promise<CapturedEmail | null> {
+  const res = await fetch(`${RESEND_API_BASE}/emails`)
+  if (!res.ok) return null
+  const data = await res.json() as { data?: CapturedEmail[] }
+  return data.data?.find((email) =>
+    email.to.includes('listener@example.com') &&
+    email.subject.includes(orderReference)
+  ) ?? null
+}
+
+async function waitForConfirmationEmail(orderReference: string): Promise<CapturedEmail> {
+  const started = Date.now()
+  while (Date.now() - started < 10_000) {
+    const email = await findConfirmationEmail(orderReference)
+    if (email) return email
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  throw new Error(`Timed out waiting for confirmation email for ${orderReference}`)
+}
+
 test('checkout completes through the emulated Stripe hosted page', async ({ page }) => {
   await page.goto('/')
   await page.evaluate(() => localStorage.clear())
@@ -27,4 +56,13 @@ test('checkout completes through the emulated Stripe hosted page', async ({ page
   await expect(page.getByTestId('order-line-item')).toContainText('Kendrick Lamar')
   await expect(page.getByTestId('order-total')).toHaveText('$32.99')
   await expect(page.getByTestId('cart-count')).toBeHidden()
+
+  const orderReference = await page.getByTestId('order-reference').innerText()
+  const confirmationEmail = await waitForConfirmationEmail(orderReference)
+
+  expect(confirmationEmail.to).toContain('listener@example.com')
+  expect(confirmationEmail.subject).toBe(`GrooveCart order ${orderReference} confirmed`)
+  expect(confirmationEmail.text).toContain('To Pimp a Butterfly - Kendrick Lamar')
+  expect(confirmationEmail.text).toContain('$32.99')
+  expect(confirmationEmail.html).toContain(orderReference)
 })

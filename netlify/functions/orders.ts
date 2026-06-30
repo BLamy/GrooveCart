@@ -1,5 +1,6 @@
 import { findCatalogRecord, priceCents } from './catalog'
 import { getStripe } from './stripe'
+import { sendOrderConfirmationEmail } from './order-email'
 
 /**
  * GET /api/orders/by-session/:sessionId — the recorded order for a Stripe
@@ -14,6 +15,8 @@ interface CartQuantity {
   recordId: number
   quantity: number
 }
+
+const confirmationEmailSessions = new Set<string>()
 
 function parseSessionId(req: Request): string | null {
   const segments = new URL(req.url).pathname.split('/').filter(Boolean)
@@ -42,7 +45,19 @@ function parseCatalogItems(raw: string | null | undefined): CartQuantity[] | nul
   return items.length ? items : null
 }
 
-function serialize(sessionId: string, orderReference: string, status: string, created: number, items: CartQuantity[]) {
+function fallbackCustomerEmail(): string | null {
+  const value = process.env.ORDER_CONFIRMATION_EMAIL_FALLBACK?.trim()
+  return value || null
+}
+
+function serialize(
+  sessionId: string,
+  orderReference: string,
+  status: string,
+  created: number,
+  items: CartQuantity[],
+  customerEmail: string | null,
+) {
   const lineItems = items.map(({ recordId, quantity }) => {
     const record = findCatalogRecord(recordId)
     if (!record) {
@@ -68,10 +83,28 @@ function serialize(sessionId: string, orderReference: string, status: string, cr
     orderReference,
     sessionId,
     status,
+    customerEmail,
     totalCents,
     total: totalCents / 100,
     createdAt: new Date(created * 1000).toISOString(),
     lineItems,
+  }
+}
+
+async function maybeSendConfirmationEmail(order: ReturnType<typeof serialize>): Promise<void> {
+  if (order.status !== 'paid') return
+  if (confirmationEmailSessions.has(order.sessionId)) return
+
+  confirmationEmailSessions.add(order.sessionId)
+  const result = await sendOrderConfirmationEmail({
+    orderReference: order.orderReference,
+    sessionId: order.sessionId,
+    customerEmail: order.customerEmail,
+    totalCents: order.totalCents,
+    lineItems: order.lineItems,
+  })
+  if (!result.ok) {
+    console.warn(`Order confirmation email not sent for ${order.sessionId}: ${result.error}`)
   }
 }
 
@@ -95,10 +128,11 @@ async function handler(req: Request): Promise<Response> {
 
     const status =
       session.payment_status === 'paid' || session.status === 'complete' ? 'paid' : 'pending'
+    const customerEmail = session.customer_details?.email ?? session.customer_email ?? fallbackCustomerEmail()
+    const order = serialize(session.id, orderReference, status, session.created, items, customerEmail)
+    await maybeSendConfirmationEmail(order)
 
-    return Response.json(
-      serialize(session.id, orderReference, status, session.created, items),
-    )
+    return Response.json(order)
   } catch (err) {
     console.error('GET /api/orders/by-session failed', err)
     return Response.json({ error: 'Failed to load order' }, { status: 500 })

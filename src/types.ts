@@ -32,8 +32,10 @@ export interface OrderLineItem {
   title: string
   artist: string
   coverImage: string
+  unitPriceCents: number
   unitPrice: number
   quantity: number
+  lineTotalCents: number
   lineTotal: number
 }
 
@@ -45,6 +47,8 @@ export interface Order {
   orderReference: string
   sessionId: string
   status: string
+  customerEmail: string | null
+  totalCents: number
   total: number
   createdAt: string
   lineItems: OrderLineItem[]
